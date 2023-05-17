@@ -1,0 +1,177 @@
+---
+title: "STAR DIGITAL - MEASURING EFFECTIVENESS OF DISPLAY ADVERTISEMENTS"
+author: "Ram & Lepakshi"
+date: '2022-10-30'
+output: pdf_document
+fontsize: 12pt
+header-includes:
+   - \usepackage{setspace}
+   - \doublespacing
+geometry: margin=1.35cm
+---
+## Background:  
+Star Digital is a multi-channel video service provider with over US$100 million in annual advertising spends, with goals ranging from brand building to increasing package sales. Although Star Digital has recently moved to an online advertising model, measuring display advertisement effectiveness has been a challenge. Star Digital wanted to measure the causal impact of display advertising on its subscription package sales conversion and eventually ran a controlled experiment on its users. 
+
+## Experimental Design Overview:  
+### Design Setup:  
+Star Digital identified the role of view-through conversion rates (advertisements influencing the purchase of a product indirectly), integrated its reporting tools to measure click-through and view-through conversions and designed an online advertisement experiment:  
+1.  Users were randomly assigned to either the control or the treatment groups. Users were shown banner ads on any or all of 6 different websites  
+2.  Control group users received banner ads for a charity organization while treatment group users received banner ads for Star Digital’s subscription package
+
+### Group Size: 
+Opportunity costs associated with control group ads made Star Digital consider the following factors to determine the control-treatment split:  
+1.	**Baseline conversion rate:** If users naturally purchase at high rates, the control group’s fraction can be small as the control users will still generate enough conversions to detect statistically significant results  
+2.	**Campaign reach:** Large campaign reach means a greater number of unique users targeted. So, for a fixed baseline conversion rate, the fraction of control group users can be smaller than treatment group  
+3.	**Lift:** Lift is the minimum incremental effect size needed to be measured. Smaller lift would require more users in control group to measure effects significantly  
+4.	**Power of experiment:** Power is the probability of an experiment to detect a lift if it exists rather than falsely measuring it. More power would require more users in the control group  
+Based on these factors, Star Digital arrived at a 10-90 control-test split   
+
+### Sampling:  
+Choice-based samples were derived due to low conversion rates (0.153 % in total) where 50% of the users sampled purchased the package while 50% did not, independent of the treatment and control groups
+```{r libraries, eval=TRUE, message=FALSE, warning=FALSE}
+library(readxl)
+library(dplyr)
+library(car) 
+library(caret)
+library(pwr)
+library(ggplot2)
+library(repr)
+```
+## Data Manipulation:  
+Impression columns were manipulated to get 2 new columns:
+
+* Total impression from sites 1 through 5 (as 1 group – imp_1_5)
+* Total impressions from all sites (imp_tot)  
+```{r eval=TRUE, message=FALSE, warning=FALSE}
+data <- read.csv('star_digital.csv')
+data$imp_1_5 = data$imp_1 + data$imp_2 + data$imp_3 + data$imp_4 + data$imp_5
+data$imp_tot = data$imp_1_5 + data$imp_6
+```
+## Data Exploration:  
+### Distribution of control and treatment groups:  
+```{r Plot1, message=FALSE, warning=FALSE, fig.align="center",fig.width = 4, fig.height = 2, echo = FALSE, tidy= TRUE}
+
+ggplot(data=data %>% group_by(test) %>% summarize(counts = n()),
+       aes(x=test, y= counts)) +
+  geom_bar(stat = 'identity', fill="steelblue") +
+  theme_minimal()
+```
+Control and treatment groups have the same distribution as the population (10-90 split)  
+
+### Distribution of Purchase and Non-purchase:  
+```{r Plot, message=FALSE, warning=FALSE, fig.align="center",fig.width = 4, fig.height = 2, echo = FALSE, tidy= TRUE}
+ggplot(data=data %>% group_by(purchase) %>% summarize(counts = n()),
+       aes(x=purchase, y= counts)) +
+  geom_bar(stat = 'identity', fill="steelblue")+
+  theme_minimal()
+```
+Choice based sampling of purchase and non-purchase groups have a 50-50 distribution, independent of the treatment assignment   
+
+### Distribution of Total impressions across control and treatment groups:  
+```{r Plot3, message=FALSE, warning=FALSE, fig.align="center",fig.width = 4, fig.height = 2, echo = FALSE, tidy= TRUE}
+ggplot(data=data %>% filter(test == 1), aes(x=imp_tot)) + xlim(0, 100) +
+  geom_bar(fill="steelblue")+
+  theme_minimal()
+```
+```{r Plot4, message=FALSE, warning=FALSE, fig.align="center",fig.width = 4, fig.height = 2, echo = FALSE, tidy= TRUE}
+ggplot(data=data %>% filter(test == 0), aes(x=imp_tot)) + xlim(0, 100) +
+  geom_bar(fill="steelblue")+
+  theme_minimal()
+```
+Total impressions are skewed, with outliers seen towards the right end of the histogram for both groups. We do not need to transform this variable as it is an independent feature (does not affect causal inference)
+
+### Checking NULL values  
+```{r null check, tidy= TRUE}
+is.null(data)
+```
+## Experiment Quality Check  
+### Randomization check:  
+To check for randomization, we look at the mean of total impressions across control and treatment groups using a t-test:  
+```{r}
+t.test(data$imp_tot ~ data$test, alternative = "two.sided")
+```
+*p-value = 0.8987*, which means that there is not enough evidence to prove that the two groups are dissimilar across total impressions  
+
+### Power of the test:  
+With a 10-90 split across control and treatment groups, a power of 0.8; which is the probability of detecting a lift if it actually exists, and alpha of 0.05; which is the probability of falsely detecting a lift, we identify the minimum effect that can be measured using current sample sizes.  
+```{r, tidy= TRUE}
+pwr.2p2n.test(n1 = length(data$test) - sum(data$test) ,
+              n2 = sum(data$test) , sig.level = .05 , power = .8)
+```
+The minimum effect size that can be significantly measured is *0.057*. For any effect less than this, the p-value will be decreasingly significant.  
+
+## Endogeneity considerations:  
+### Selection  Bias:  
+The control and treatment groups have been randomly assigned (t-test confirmed) with similar total impression proportions. This is also why there will not be any omitted variable bias associated with test variable.  
+
+### Omitted Variable Bias:  
+Omitted variable bias may occur when an external variable is correlated with impressions and purchase (outcome). A slow internet connection can be correlated with both the ad impressions a user receives and their purchase behavior.  
+
+*Note: There are no reasons to consider simultaneity bias, measurement bias. Other external factors affecting conversions are negligible as we assume constant baseline conversion rate.*  
+
+### Experimental limitations:  
+**SUTVA:** SUTVA violations can occur if a user who views a charity ad (control) views a Star Digital ad too. Although there are chances that this can occur, especially if two users from the control and treatment groups are socially connected, it would be negligible.  
+**Over-estimation:** Cases where an impression might have occurred long before the purchase was made can overestimate the impression's impact. Reporting tools should identify time frames within which ad impact on purchase is measured. Additionally, impact of ads in websites 1-5 can be falsely associated with the impact of ads on website 6; but since it can occur both ways, we can assume that the effects cancel out.
+
+## Addressing business questions:  
+### Question 1: Is online advertising effective for Star Digital?
+Comparing the purchase behaviour between control and treatment groups using linear regression  
+**Linear model**
+```{r, tidy= TRUE}
+summary(lm(purchase ~ test, data = data))
+```
+Fit line => Purchase = 0.485 + 0.019 * Test  
+*p-value: 0.0614*  
+Although the p-value is slightly above the accepted level (0.05), since we have an under-powered test (because of the sample size) to measure an effect less than 5.7% (as shown above), we can still consider the impact of ads on purchase with certain caution.  
+**Interpretation:** Showing a Star Digital user a digital banner ad increases the average purchase proportion by 0.02. 
+
+### Question 2: Is there a frequency effect of advertising on purchase?  
+Since we are interested in the impact of total impressions on purchase for the Star Digital ads only, we filter for test = 1  
+**Linear model**
+```{r, tidy= TRUE}
+test_data = data %>% filter(test == 1)
+summary(lm(purchase ~ imp_tot, data = test_data))
+```
+Fit line => Purchase = 0.4763 + 0.0036 * imp_tot  
+*p-value < 2.2 x 10-6*  (significant results, hence valid)  
+**Interpretation:** For every additional Star Digital impression on a user, the average purchase proportion increases by 0.0036.   
+
+### Question 3: Which sites should Star Digital advertise on?  
+To answer this question, we’ll filter for test = 1 (same logic as question 2) and regress purchase on impressions from site 1_5 and site 6.  
+**Linear model**  
+```{r, tidy= TRUE}
+summary(lm(purchase ~ imp_1_5 + imp_6, data = test_data))
+```
+Fit line => Purchase = 0.4763 + 0.0038 * imp_1_5 + 0.00237 * imp_6  
+*Highest p-value  = 3.2e-06*  (significant results, hence valid)  
+**Interpretation:**  
+1.	Among users that were given Star Digital ads, with site 6 impressions constant, 1 additional ad impression in sites 1 - 5 increases the average proportion of purchase by 0.0038  
+2.	Among users that were given Star Digital ads, with site 1 through 5 impressions constant, 1 additional ad impression in sites 6 increases the average proportion of purchase by 0.00237  
+**Calculating Return on Investment:**  
+Cost for ads in sites 1 through 5 is $25 per thousand impressions and at site 6 is $20 per thousand impressions. Each purchase yields a lifetime revenue of $1200.  
+ROI = (Revenue – Cost) / Cost  
+**For sites 1-5 group:**  
+Revenue for 1000 impressions = 1000 * 0.0038 * 1200 = $4560   |   Cost = $25  
+***ROI = $182*** 
+
+**For site 6 group:**  
+Revenue for 1000 impressions = 1000 * 0.00237 * 1200 = $2844  |   Cost = $20  
+***ROI = $143***  
+Investing in ads at sites 1 through 5 yield a better net ROI than ads in site 6. 
+
+## Recommendations:  
+Star Digital's online advertisements are yielding results, increasingly with more advertisements. The company should focus on websites 1-5 rather than website 6 for better ROI.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
